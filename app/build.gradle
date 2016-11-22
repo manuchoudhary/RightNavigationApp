@@ -28,6 +28,15 @@ android {
             maven { url "https://jitpack.io" }
         }
     }
+
+    splits {
+        abi {
+            enable true
+            reset()
+            include 'x86', 'armeabi-v7a', 'mips'
+            universalApk false
+        }
+    }
 }
 
 dependencies {
