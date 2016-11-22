@@ -1,7 +1,10 @@
 package com.example.manishchoudhary.rightnavigationapp;
 
 import android.app.Activity;
+import android.app.AlarmManager;
+import android.app.PendingIntent;
 import android.content.Context;
+import android.content.Intent;
 import android.net.Uri;
 import android.support.v7.widget.RecyclerView;
 import android.text.TextUtils;
@@ -14,6 +17,7 @@ import com.android.volley.toolbox.ImageLoader;
 import com.like.LikeButton;
 import com.like.OnLikeListener;
 
+import java.util.Calendar;
 import java.util.List;
 
 import io.realm.Realm;
@@ -154,19 +158,38 @@ public class FeedListAdapter extends RealmRecyclerViewAdapter<FeedItem> {
     public void feedLiked(int position){
         RealmResults<FeedItem> results = realm.where(FeedItem.class).findAll();
         int id = results.get(position).getId();
+        String name = realm.where(FeedItem.class).equalTo("id", id).findFirst().getName();
         realm.beginTransaction();
         realm.where(FeedItem.class).equalTo("id", id).findFirst().setIsLiked(true);
         realm.commitTransaction();
         notifyDataSetChanged();
+        notification("Like", name);
     }
 
     public void feedUnliked(int position){
         RealmResults<FeedItem> results = realm.where(FeedItem.class).findAll();
         int id = results.get(position).getId();
+        String name = realm.where(FeedItem.class).equalTo("id", id).findFirst().getName();
         realm.beginTransaction();
         realm.where(FeedItem.class).equalTo("id", id).findFirst().setIsLiked(false);
         realm.commitTransaction();
         notifyDataSetChanged();
+        notification("Unlike", name);
+    }
+
+    public void notification(String like, String name){
+        AlarmManager alarmManager = (AlarmManager) activity.getSystemService(Context.ALARM_SERVICE);
+
+        Intent notificationIntent = new Intent("android.media.action.DISPLAY_NOTIFICATION");
+        notificationIntent.addCategory("android.intent.category.DEFAULT");
+        notificationIntent.putExtra("Like", like);
+        notificationIntent.putExtra("Name", name);
+
+        PendingIntent broadcast = PendingIntent.getBroadcast(activity, 100, notificationIntent, PendingIntent.FLAG_UPDATE_CURRENT);
+
+        Calendar cal = Calendar.getInstance();
+        cal.add(Calendar.SECOND, 5);
+        alarmManager.setExact(AlarmManager.RTC_WAKEUP, cal.getTimeInMillis(), broadcast);
     }
 }
 
