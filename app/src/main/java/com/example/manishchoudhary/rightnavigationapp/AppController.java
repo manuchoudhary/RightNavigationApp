@@ -8,6 +8,9 @@ import com.android.volley.RequestQueue;
 import com.android.volley.toolbox.ImageLoader;
 import com.android.volley.toolbox.Volley;
 
+import io.realm.Realm;
+import io.realm.RealmConfiguration;
+
 /**
  * Created by manish.choudhary on 11/17/2016.
  */
@@ -26,6 +29,12 @@ public class AppController extends Application {
     public void onCreate() {
         super.onCreate();
         mInstance = this;
+        RealmConfiguration realmConfiguration = new RealmConfiguration.Builder(this)
+                .name(Realm.DEFAULT_REALM_NAME)
+                .schemaVersion(0)
+                .deleteRealmIfMigrationNeeded()
+                .build();
+        Realm.setDefaultConfiguration(realmConfiguration);
     }
 
     public static synchronized AppController getInstance() {

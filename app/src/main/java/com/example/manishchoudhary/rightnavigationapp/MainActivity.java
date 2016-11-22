@@ -18,10 +18,13 @@ import android.widget.Toast;
 
 import com.android.volley.Cache;
 import com.android.volley.Request;
+import com.android.volley.RequestQueue;
 import com.android.volley.Response;
 import com.android.volley.VolleyError;
 import com.android.volley.VolleyLog;
 import com.android.volley.toolbox.JsonObjectRequest;
+import com.android.volley.toolbox.StringRequest;
+import com.android.volley.toolbox.Volley;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -30,6 +33,9 @@ import org.json.JSONObject;
 import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.List;
+
+import io.realm.Realm;
+import io.realm.RealmResults;
 
 /**
  * Created by manish.choudhary on 11/17/2016.
@@ -41,29 +47,36 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
     private static final String TAG = MainActivity.class.getSimpleName();
     private RecyclerView listView;
     private FeedListAdapter listAdapter;
-    private List<FeedItem> feedItems;
+    private Realm realm;
+    private ArrayList<FeedItem> feedItems;
     private String URL_FEED = "http://api.androidhive.info/feed/feed.json";
-    private ProgressDialog progress;
-    Cache.Entry entry;
+    int count = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        this.realm = RealmController.with(this).getRealm();
+
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
 
         listView = (RecyclerView) findViewById(R.id.list);
-        listView.setLayoutManager(new LinearLayoutManager(this));
 
-        feedItems = new ArrayList<FeedItem>();
+        setupRecycler();
 
-        Cache cache = AppController.getInstance().getRequestQueue().getCache();
-        entry = cache.get(URL_FEED);
-        startProgress();
-
-        Progress pro = new Progress();
-        pro.execute();
+        if (!Prefs.with(this).getPreLoad()) {
+            setRealmData();
+        }
+        else{
+            List<FeedItem> itemList = new ArrayList<FeedItem>();
+            itemList = RealmController.with(this).getFeedItems();
+            listAdapter = new FeedListAdapter(this, itemList);
+            listView.setAdapter(listAdapter);
+            RealmController.with(this).refresh();
+            setRealmAdapter(RealmController.with(this).getFeedItems());
+        }
 
         drawer = (DrawerLayout) findViewById(R.id.drawer_layout);
         ActionBarDrawerToggle toggle = new ActionBarDrawerToggle(
@@ -78,24 +91,80 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         rightNavigationView.setNavigationItemSelectedListener(this);
     }
 
-    private void startProgress(){
+    public void setRealmAdapter(RealmResults<FeedItem> itemList) {
 
+        RealmFeedItemAdapter realmAdapter = new RealmFeedItemAdapter(this.getApplicationContext(), itemList, true);
+        // Set the data and tell the RecyclerView to draw
+        listAdapter.setRealmAdapter(realmAdapter);
+        listAdapter.notifyDataSetChanged();
+    }
+
+    private void setupRecycler() {
+        // use this setting to improve performance if you know that changes
+        // in content do not change the layout size of the RecyclerView
+        listView.setHasFixedSize(true);
+
+        // use a linear layout manager since the cards are vertically scrollable
+        final LinearLayoutManager layoutManager = new LinearLayoutManager(this);
+        layoutManager.setOrientation(LinearLayoutManager.VERTICAL);
+        listView.setLayoutManager(layoutManager);
+    }
+
+    private void setRealmData() {
+
+        StringRequest stringRequest = new StringRequest(URL_FEED,
+                new Response.Listener<String>() {
+                    @Override
+                    public void onResponse(String response) {
+                        try {
+                            parseJsonFeed(new JSONObject(response));
+                            RealmController.with(MainActivity.this).refresh();
+                            setRealmAdapter(RealmController.with(MainActivity.this).getFeedItems());
+                        } catch (JSONException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                },
+                new Response.ErrorListener() {
+                    @Override
+                    public void onErrorResponse(VolleyError error) {
+                        Toast.makeText(MainActivity.this,error.getMessage(),Toast.LENGTH_LONG).show();
+                    }
+                });
+
+        RequestQueue requestQueue = Volley.newRequestQueue(this);
+        requestQueue.add(stringRequest);
     }
 
     private void parseJsonFeed(JSONObject response) {
         try {
             JSONArray feedArray = response.getJSONArray("feed");
-
+            feedItems = new ArrayList<FeedItem>();
             for (int i = 0; i < feedArray.length(); i++) {
                 JSONObject feedObj = (JSONObject) feedArray.get(i);
 
                 FeedItem item = new FeedItem();
-                item.setId(feedObj.getInt("id"));
+
+                switch(feedObj.getInt("id")){
+                    case 8:
+                        if(count == 1){
+                            item.setId(12);
+                        }
+                        if(count == 0){
+                            item.setId(feedObj.getInt("id"));
+                            count = 1;
+                        }
+                        break;
+                    default:
+                        item.setId(feedObj.getInt("id"));
+                        break;
+                }
+
                 item.setName(feedObj.getString("name"));
 
                 String image = feedObj.isNull("image") ? null : feedObj
                         .getString("image");
-                item.setImge(image);
+                item.setImage(image);
                 item.setStatus(feedObj.getString("status"));
                 item.setProfilePic(feedObj.getString("profilePic"));
                 item.setTimeStamp(feedObj.getString("timeStamp"));
@@ -103,9 +172,17 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
                 String feedUrl = feedObj.isNull("url") ? null : feedObj
                         .getString("url");
                 item.setUrl(feedUrl);
+                item.setIsLiked(false);
 
                 feedItems.add(item);
             }
+            for (FeedItem item : feedItems) {
+                // Persist your data easily
+                realm.beginTransaction();
+                realm.copyToRealmOrUpdate(item);
+                realm.commitTransaction();
+            }
+            Prefs.with(this).setPreLoad(true);
 
             listAdapter = new FeedListAdapter(this, feedItems);
             listView.setAdapter(listAdapter);
@@ -155,17 +232,11 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         if(item.getItemId() == R.id.nav_left_view){
             int id = item.getItemId();
             if (id == R.id.nav_camera) {
-                Toast.makeText(MainActivity.this, "Left Drawer - Import", Toast.LENGTH_SHORT).show();
             } else if (id == R.id.nav_gallery) {
-                Toast.makeText(MainActivity.this, "Left Drawer - Gallery", Toast.LENGTH_SHORT).show();
             } else if (id == R.id.nav_slideshow) {
-                Toast.makeText(MainActivity.this, "Left Drawer - Slideshow", Toast.LENGTH_SHORT).show();
             } else if (id == R.id.nav_manage) {
-                Toast.makeText(MainActivity.this, "Left Drawer - Tools", Toast.LENGTH_SHORT).show();
             } else if (id == R.id.nav_share) {
-                Toast.makeText(MainActivity.this, "Left Drawer - Share", Toast.LENGTH_SHORT).show();
             } else if (id == R.id.nav_send) {
-                Toast.makeText(MainActivity.this, "Left Drawer - Send", Toast.LENGTH_SHORT).show();
             }
 
             drawer.closeDrawer(GravityCompat.START);
@@ -174,11 +245,8 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         if(item.getItemId() == R.id.nav_right_view){
             int id = item.getItemId();
             if (id == R.id.nav_settings) {
-                Toast.makeText(MainActivity.this, "Right Drawer - Settings", Toast.LENGTH_SHORT).show();
             } else if (id == R.id.nav_logout) {
-                Toast.makeText(MainActivity.this, "Right Drawer - Logout", Toast.LENGTH_SHORT).show();
             } else if (id == R.id.nav_help) {
-                Toast.makeText(MainActivity.this, "Right Drawer - Help", Toast.LENGTH_SHORT).show();
             } else if (id == R.id.nav_about) {
                 Toast.makeText(MainActivity.this, "Right Drawer - About", Toast.LENGTH_SHORT).show();
             }
@@ -187,60 +255,5 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
             return true;
         }
         return false;
-    }
-
-    public class Progress extends AsyncTask<String, Void, Void> {
-
-        ProgressDialog dialog;
-
-        protected void onPreExecute() {
-            dialog = new ProgressDialog(MainActivity.this, R.string.progress_msg);
-            dialog.show();
-        }
-
-        @Override
-        protected Void doInBackground(String... params) {
-
-            if (entry != null) {
-                try {
-                    String data = new String(entry.data, "UTF-8");
-                    try {
-                        parseJsonFeed(new JSONObject(data));
-                    } catch (JSONException e) {
-                        e.printStackTrace();
-                    }
-                } catch (UnsupportedEncodingException e) {
-                    e.printStackTrace();
-                }
-
-            } else {
-                JsonObjectRequest jsonReq = new JsonObjectRequest(Request.Method.GET,
-                        URL_FEED, null, new Response.Listener<JSONObject>() {
-
-                    @Override
-                    public void onResponse(JSONObject response) {
-                        VolleyLog.d(TAG, "Response: " + response.toString());
-                        if (response != null) {
-                            parseJsonFeed(response);
-                        }
-                    }
-                }, new Response.ErrorListener() {
-
-                    @Override
-                    public void onErrorResponse(VolleyError error) {
-                        VolleyLog.d(TAG, "Error: " + error.getMessage());
-                    }
-                });
-
-                AppController.getInstance().addToRequestQueue(jsonReq);
-            }
-
-            return null;
-        }
-
-        protected void onPostExecute(Void unused) {
-            dialog.dismiss();
-        }
-
     }
 }
